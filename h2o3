@@ -1,1 +1,108 @@
+# Importing necessary libraries
+import h2o
+from h2o.automl import H2OAutoML
+from h2o.estimators.gbm import H2OGradientBoostingEstimator
+from h2o.estimators.glm import H2OGeneralizedLinearEstimator
+from h2o.estimators.deeplearning import H2ODeepLearningEstimator
+from h2o.estimators.random_forest import H2ORandomForestEstimator
+from h2o.estimators.naive_bayes import H2ONaiveBayesEstimator
+from h2o.estimators.stackedensemble import H2OStackedEnsembleEstimator
+import pandas as pd
+import numpy as np
 
+# Initialize H2O
+h2o.init()
+
+# Load the dataset
+file_path = "C:/Users/aimil/Downloads/Student_performance_data _.csv"
+df = h2o.import_file(file_path)
+
+# Define predictors and response column
+predictors = df.columns[:-1]
+response = df.columns[-1]
+
+# Convert response to a factor (for multiclass classification)
+df[response] = df[response].asfactor()
+
+# Split the data into training and validation sets
+train, test = df.split_frame(ratios=[0.8], seed=1234)
+
+# List of different models 
+models = [
+    ('GBM', H2OGradientBoostingEstimator(seed=1234, nfolds=5, keep_cross_validation_predictions=True)),
+    ('GLM', H2OGeneralizedLinearEstimator(nfolds=5, keep_cross_validation_predictions=True)),
+    ('Deep Learning', H2ODeepLearningEstimator(seed=1234, nfolds=5, keep_cross_validation_predictions=True)),
+    ('Random Forest', H2ORandomForestEstimator(seed=1234, nfolds=5, keep_cross_validation_predictions=True)),
+    ('Naive Bayes', H2ONaiveBayesEstimator(nfolds=5, keep_cross_validation_predictions=True)),
+    ('AutoML (40 models)', H2OAutoML(max_models=40, seed=1234, balance_classes=True, nfolds=5))
+]
+
+# Dictionary to store model ids and special handling for AutoML
+model_ids = {}
+
+# Train base models for Stacked Ensemble with cross-validation and keep cross-validation predictions
+base_gbm = H2OGradientBoostingEstimator(seed=1234, nfolds=5, keep_cross_validation_predictions=True)
+base_rf = H2ORandomForestEstimator(seed=1234, nfolds=5, keep_cross_validation_predictions=True)
+base_gbm.train(x=predictors, y=response, training_frame=train)
+base_rf.train(x=predictors, y=response, training_frame=train)
+
+# Save model IDs
+base_model_ids = [base_gbm.model_id, base_rf.model_id]
+
+# Train the Stacked Ensemble using base model IDs
+stacked_ensemble = H2OStackedEnsembleEstimator(base_models=base_model_ids, seed=1234)
+stacked_ensemble.train(x=predictors, y=response, training_frame=train)
+
+# Add Stacked Ensemble model ID
+model_ids['Stacked Ensemble'] = stacked_ensemble.model_id
+
+# Train the models and store their IDs
+for name, model in models:
+    if name == 'AutoML (40 models)':
+        model.train(x=predictors, y=response, training_frame=train)
+        automl_leader = model.leader
+        model_ids[name] = automl_leader.model_id
+    else:
+        model.train(x=predictors, y=response, training_frame=train)
+        model_ids[name] = model.model_id
+
+# Function to calculate metrics
+def calculate_multiclass_metrics(y_true, y_pred):
+    accuracy = np.mean(y_true == y_pred)
+    precision = np.sum((y_true == y_pred) & (y_pred != 0)) / np.sum(y_pred != 0) if np.sum(y_pred != 0) > 0 else 0
+    recall = np.sum((y_true == y_pred) & (y_true != 0)) / np.sum(y_true != 0) if np.sum(y_true != 0) > 0 else 0
+    f1_score = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
+    return accuracy, precision, recall, f1_score
+
+# Iterate over each model, train and evaluate
+results = []
+for name, model_id in model_ids.items():
+    model = h2o.get_model(model_id)
+
+    # Predict on the test set
+    predictions = model.predict(test)
+
+    # Extracting predictions (handling cases where predictions contain probabilities)
+    if 'predict' in predictions.columns:
+        y_pred = predictions['predict'].as_data_frame(use_pandas=True).values.flatten()
+    else:
+        y_pred = predictions.as_data_frame(use_pandas=True).values.flatten()
+
+    # Get the true labels
+    y_true = test[response].as_data_frame(use_pandas=True).values.flatten()
+
+    # Calculate metrics
+    accuracy, precision, recall, f1_score = calculate_multiclass_metrics(y_true, y_pred)
+    
+    # Store the results
+    results.append({
+        'model': name,
+        'accuracy': accuracy,
+        'precision': precision,
+        'recall': recall,
+        'f1_score': f1_score
+    })
+
+# Print the results
+for result in results:
+    print(f"Model: {result['model']}, Accuracy: {result['accuracy']:.4f}, Precision: {result['precision']:.4f}, Recall: {result['recall']:.4f}, F1 score: {result['f1_score']:.4f}")
