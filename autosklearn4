@@ -1,1 +1,80 @@
+import autosklearn.classification
+print(autosklearn.__version__)      
 
+import numpy as np
+import pandas as pd
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, classification_report
+import autosklearn.classification
+
+# Load the dataset
+file_path = "/home/ilias/Downloads/train.csv"
+df = pd.read_csv(file_path)
+
+X = df.drop(columns='Price_Range')
+Y = df['Price_Range']
+
+X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2, random_state=42)
+
+scaler = StandardScaler()
+X_train = scaler.fit_transform(X_train)
+X_test = scaler.transform(X_test)
+
+classifier_configs = {
+    'SVM': {'classifier': ['libsvm_svc']},
+    'Decision Tree': {'classifier': ['decision_tree']},
+    'Random Forest': {'classifier': ['random_forest']},
+    'Gradient Boosting': {'classifier': ['gradient_boosting']},
+    'AdaBoost': {'classifier': ['adaboost']},
+    'KNN': {'classifier': ['k_nearest_neighbors']},
+    'Naive Bayes': {'classifier': ['gaussian_nb']},
+    'MLP': {'classifier': ['mlp']},
+    'LDA': {'classifier': ['lda']},
+    'Gaussian Process': {'classifier': ['gaussian_process']}
+}
+
+performance_metrics = {}
+
+# Train and evaluate each classifier using AutoSklearn
+for name, config in classifier_configs.items():
+    print(f'Processing {name} Classifier...')
+
+    cls = autosklearn.classification.AutoSklearnClassifier(
+        include=config,
+        time_left_for_this_task=300,  # Adjust as needed
+        per_run_time_limit=60,        # Adjust as needed
+        seed=42                       # For reproducibility
+    )
+
+    cls.fit(X_train, Y_train)
+    predictions = cls.predict(X_test)
+
+    accuracy = accuracy_score(Y_test, predictions)
+    precision = precision_score(Y_test, predictions, average='weighted')
+    recall = recall_score(Y_test, predictions, average='weighted')
+    f1 = f1_score(Y_test, predictions, average='weighted')
+
+    performance_metrics[name] = {
+        'test_accuracy': accuracy,
+        'precision': precision,
+        'recall': recall,
+        'f1_score': f1
+    }
+
+    print(f'{name} Classifier:')
+    print(f'Test Accuracy: {accuracy:.4f}')
+    print(f'Precision: {precision:.4f}')
+    print(f'Recall: {recall:.4f}')
+    print(f'F1 Score: {f1:.4f}')
+    print(classification_report(Y_test, predictions))
+    print('-' * 50)
+
+# Print the performance metrics for all classifiers
+for name, metrics in performance_metrics.items():
+    print(f'{name} Classifier:')
+    print(f"Test Accuracy: {metrics['test_accuracy']:.4f}")
+    print(f"Precision: {metrics['precision']:.4f}")
+    print(f"Recall: {metrics['recall']:.4f}")
+    print(f"F1 Score: {metrics['f1_score']:.4f}")
+    print('-' * 50)
