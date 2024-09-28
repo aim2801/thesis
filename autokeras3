@@ -1,1 +1,80 @@
+# Importing necessary libraries
+import numpy as np
+import pandas as pd
+import autokeras as ak
 
+# Load the dataset
+file_path = "C:/Users/aimil/Downloads/Student_performance_data _.csv"
+df = pd.read_csv(file_path)
+
+# Split the data into features and target
+X = df.drop(columns='GradeClass').to_numpy()
+Y = df['GradeClass'].to_numpy()
+
+Y = df['GradeClass'].apply(lambda y_value: 1 if y_value>=2 else 0)
+
+# Manually split the data into training and test sets
+def train_test_split_manual(X, Y, test_size=0.2, random_state=42):
+    np.random.seed(random_state)
+    indices = np.random.permutation(len(X))
+    test_set_size = int(len(X) * test_size)
+    test_indices = indices[:test_set_size]
+    train_indices = indices[test_set_size:]
+    return X[train_indices], X[test_indices], Y[train_indices], Y[test_indices]
+
+X_train, X_test, Y_train, Y_test = train_test_split_manual(X, Y)
+
+# Define the list of classification models
+model_builders = [
+    ak.StructuredDataClassifier(),  # Basic structured data classifier
+    
+    ak.AutoModel(  # AutoModel with StructuredDataInput and ClassificationHead
+        inputs=ak.StructuredDataInput(),
+        outputs=ak.ClassificationHead()
+    ),
+    
+    ak.AutoModel(  # AutoModel with StructuredDataInput and RegressionHead (not ideal for classification)
+        inputs=ak.StructuredDataInput(),
+        outputs=ak.RegressionHead()
+    )
+]
+
+# Define function to calculate metrics
+def calculate_metrics(y_true, y_pred):
+    tp = np.sum((y_true == 1) & (y_pred == 1))
+    tn = np.sum((y_true == 0) & (y_pred == 0))
+    fp = np.sum((y_true == 0) & (y_pred == 1))
+    fn = np.sum((y_true == 1) & (y_pred == 0))
+
+    accuracy = (tp + tn) / (tp + tn + fp + fn)
+    precision = tp / (tp + fp) if (tp + fp) != 0 else 0
+    recall = tp / (tp + fn) if (tp + fn) != 0 else 0
+    f1_score = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
+
+    return accuracy, precision, recall, f1_score
+
+
+
+# Train and evaluate each model
+for model_builder in model_builders:
+    model = model_builder
+    
+    # Fit the model
+    model.fit(X_train, Y_train, epochs=10)
+    
+    # Predict the outcomes
+    predictions = model.predict(X_test)
+    
+    # Convert predictions to binary
+    rounded_predictions = (predictions > 0.4).astype(int).flatten()
+    
+    # Calculate metrics
+    accuracy, precision, recall, f1_score = calculate_metrics(Y_test, rounded_predictions)
+    
+    # Print the current metrics
+    print(f"Model: {model.__class__.__name__}")
+    print(f"Accuracy: {accuracy:.4f}")
+    print(f"Precision: {precision:.4f}")
+    print(f"Recall: {recall:.4f}")
+    print(f"F1 Score: {f1_score:.4f}")
+    print("-" * 50)
